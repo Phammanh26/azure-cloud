@@ -3,11 +3,22 @@ import logging
 from io import BytesIO
 import json
 from azure.storage.blob import  ContainerClient
+import numpy as np
 import pandas as pd
 from abc import ABC, abstractmethod
-from clould.utils.genSas import gen_sas
+from cloud.utils.genSas import gen_sas
 import pickle
 # logger = logging.getLogger(config.format_logger)
+class NumpyEncoder(json.JSONEncoder):
+    """ Special json encoder for numpy types """
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
 
 class BaseService(ABC):
     def __init__(self):
@@ -103,17 +114,17 @@ class AzureService(BaseService):
                 list_file.append(blob.name)
         return list_file
 
-    def get_sub_folder(self, blob_name, delimiter='/'):
+    def get_sub_folder_name(self, blob_name, delimiter='/'):
         list_folder = []
-        print(blob_name)
+        
         blob_list = self.container_client.walk_blobs(blob_name, delimiter=delimiter)
         for blob in blob_list:
-            list_folder.append(blob.name)
+            list_folder.append(blob.name[:-1].split("/")[-1])
         return list_folder
 
     def upload_json(self, blob_name,  json_data, overwrite=True):
         blob_client = self.container_client.get_blob_client(blob=blob_name)
-        blob_client.upload_blob(json.dumps(json_data, indent=4, ensure_ascii=False),overwrite=overwrite)
+        blob_client.upload_blob(json.dumps(json_data, indent=4, ensure_ascii=False, cls=NumpyEncoder),overwrite=overwrite)
        
         return None
 
