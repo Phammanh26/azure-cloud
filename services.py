@@ -8,7 +8,10 @@ import pandas as pd
 from abc import ABC, abstractmethod
 from cloud.utils.genSas import gen_sas
 import pickle
-# logger = logging.getLogger(config.format_logger)
+import time
+import azure.cosmos.cosmos_client as cosmos_client
+
+
 class NumpyEncoder(json.JSONEncoder):
     """ Special json encoder for numpy types """
     def default(self, obj):
@@ -34,6 +37,7 @@ class BaseService(ABC):
     def setup(self):
         raise NotImplementedError
 
+
     
 class AzureService(BaseService):
     def __init__(self, conn_string = None, container_name = None, account_name = None, account_key = None, is_prod = False):
@@ -55,18 +59,35 @@ class AzureService(BaseService):
     
     def setup(self):
         try:
+            st_time = time.time()
             self.container_client = ContainerClient.from_connection_string(conn_str= self.conn_string, container_name=self.container_name)
+            # print(self.container_client.)
+            if self.container_client.exists:
+                self._status = 200
+            else:
+                self._status = 404
+            print(time.time() - st_time)
+        except Exception as e:
+            # logger.exception(e)
+            print(e)
+            self._status = 500
+    
+    def change_container(self, container_name):
+        try:
+            self.container_name = container_name
+            self.container_client = ContainerClient.from_connection_string(conn_str= self.conn_string, container_name = container_name)
             if self.container_client.exists():
                 self._status = 200
             else:
                 self._status = 404
         except Exception as e:
-            logger.exception(e)
+            # logger.exception(e)
             self._status = 500
     
     def gen_Sas_blob(self, blob_name):
         url = gen_sas(account_name = self.account_name, account_key= self.account_key, container_name= self.container_name, blob_name= blob_name)
         return url
+   
     def read_json_blob(self, blob_name):
         blob_client = self.container_client.get_blob_client(blob_name)
         streamdownloader = blob_client.download_blob()
@@ -116,7 +137,6 @@ class AzureService(BaseService):
 
     def get_sub_folder_name(self, blob_name, delimiter='/'):
         list_folder = []
-        
         blob_list = self.container_client.walk_blobs(blob_name, delimiter=delimiter)
         for blob in blob_list:
             list_folder.append(blob.name[:-1].split("/")[-1])
@@ -140,3 +160,26 @@ class AzureService(BaseService):
         blob_client.upload_blob(df_data.to_csv(index=index),overwrite=overwrite)
     
         return True
+
+class CosmosDatabaseService(BaseService):
+    def __init__(self, host = None, master_key = None, database_id = None, container_id = None):
+        self.host = host
+        self.master_key = master_key
+        self.database_id = database_id
+        self.container_id = container_id
+        super(CosmosDatabaseService, self).__init__()
+
+    def setup(self):
+        client = cosmos_client.CosmosClient(self.host, {'masterKey': self.master_key}, user_agent="CosmosDBPythonQuickstart", user_agent_overwrite=True)
+        db = client.get_database_client(self.database_id)
+        self.container_client = db.get_container_client(self.container_id)
+
+
+    def query_items(self, query, parameters):
+        items = list(self.container_client.query_items(
+        query=query,
+        parameters=parameters))
+        return items
+
+
+
